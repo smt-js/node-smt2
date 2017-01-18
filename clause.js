@@ -2,6 +2,8 @@
 
 var assert = require("assert");
 
+var smt2sorts = require("./sorts");
+
 // helpers
 function unsupported(message) {
     return "unsupported " + message;
@@ -15,8 +17,8 @@ function unsupportedValueType(message, type) {
     return unsupported(message + " value of type " + type);
 }
 
-function isNode(node) {
-    return typeof node.type !== "undefined";
+function unsupportedSortInference(message) {
+    return unsupported("determining SMT2 sorts from" + message);
 }
 
 function cl(name) {
@@ -31,8 +33,37 @@ function cl(name) {
 }
 
 // public API
-function decl(name, type) {
-    return cl("declare-variable", name, type);
+function isNode(node) {
+    if (node === null) {
+        return false;
+    }
+
+    if (!node.hasOwnProperty("type")) {
+        return false;
+    }
+
+    return true;
+}
+
+function typeToSort(type) {
+    switch (type) {
+        case "string": {
+            return smt2sorts.STRING;
+        }
+        case "number": {
+            return smt2sorts.NUMBER;
+        }
+        case "boolean": {
+            return smt2sorts.BOOLEAN;
+        }
+        default: {
+            throw Error(unsupported("creating SMT2 sorts from JS type " + type));
+        }
+    }
+}
+
+function decl(name, sort) {
+    return cl("declare-variable", name, sort);
 }
 
 function assertClause(a) {
@@ -83,6 +114,10 @@ function binary(op, a, b) {
     return cl(op, a, b);
 }
 
+function add(a, b) {
+    return binary("+", a, b);
+}
+
 function eq(a, b) {
     return binary("=", a, b);
 }
@@ -100,10 +135,6 @@ function not(a) {
     return cl("not", a);
 }
 
-function sortof(a) {
-    return cl(a, "Type");
-}
-
 // nodes
 function id(a) {
     return a;
@@ -117,6 +148,7 @@ function literal(value) {
         return regex(value);
     }
     switch (typeof value) {
+        case "boolean":
         case "number": {
             return value;
         }
@@ -129,8 +161,125 @@ function literal(value) {
     }
 }
 
-// recursive conversion
-function nodeToCl(node) {
+function nodeToSort(node, sorts) {
+
+    // sanity check: naively checking that a node was passed
+    assert(isNode(node), "nodeToSort should be passed a node");
+
+    switch (node.type) {
+
+        // convert literals' JS types to SMT2 sorts
+        case "Literal": {
+            return typeToSort(typeof node.value);
+        }
+
+        // use existing sort data to get sorts of identifiers
+        case "Identifier": {
+            if (typeof sorts[node.name] === "undefined") {
+                throw Error(unsupportedSortInference("undefined variables"));
+            }
+
+            return sorts[node.name];
+        }
+        case "ConditionalExpression": {
+            return smt2sorts.BOOLEAN;
+        }
+        case "LogicalExpression": {
+            switch (node.operator) {
+                case "||":
+                case "&&":
+                default: {
+                    throw Error(unsupportedSortInference("logical expressions with operator " + node.operator));
+                }
+            }
+
+            // eslint-disable-next-line no-unreachable
+            break;
+        }
+        case "UnaryExpression": {
+            if (node.prefix) {
+                switch (node.operator) {
+
+                    // case "typeof": {
+                    //     return undefined;
+                    // }
+                    case "!": {
+                        return smt2sorts.BOOLEAN;
+                    }
+                    default: {
+                        throw Error(unsupportedSortInference("unary expressions with operator " + node.operator));
+                    }
+                }
+            } else {
+                throw Error(unsupportedSortInference("non-prefix unary expressions"));
+            }
+
+            // eslint-disable-next-line no-unreachable
+            break;
+        }
+        case "BinaryExpression": {
+            switch (node.operator) {
+                case "<":
+                case ">": {
+                    return smt2sorts.BOOLEAN;
+                }
+                case "-":
+                case "*":
+                case "/": {
+                    return smt2sorts.NUMBER;
+                }
+                case "+": {
+                    var leftSort  = nodeToSort(node.left, sorts);
+                    var rightSort = nodeToSort(node.right, sorts);
+
+                    // if either side is a string, result will be a string
+                    if (leftSort === smt2sorts.STRING || rightSort === smt2sorts.STRING) {
+                        return smt2sorts.STRING;
+                    }
+
+                    // otherwise, it's a number
+                    return smt2sorts.NUMBER;
+                }
+                case "==":
+                case "===":
+                case "!==": {
+                    return smt2sorts.BOOLEAN;
+                }
+                default: {
+                    throw Error(unsupportedSortInference("binary expressions with operator " + node.operator));
+                }
+            }
+
+            // eslint-disable-next-line no-unreachable
+            break;
+        }
+
+        // explicitly unhandled cases
+        case "ArrayExpression": {
+            return smt2sorts.STRING;
+        }
+        case "ObjectExpression": {
+            return smt2sorts.STRING;
+        }
+        case "FunctionExpression": {
+            return smt2sorts.STRING;
+        }
+        case "MemberExpression": {
+            return smt2sorts.STRING;
+        }
+        case "CallExpression": {
+            return smt2sorts.STRING;
+        }
+        case "Pattern": {
+            return smt2sorts.STRING;
+        }
+        default: {
+            throw Error(unsupportedSortInference("node of type " + node.type));
+        }
+    }
+}
+
+function nodeToCl(node, sorts) {
 
     // sanity check: naively checking that a node was passed
     assert(isNode(node), "nodeToCl should be passed a node");
@@ -139,21 +288,19 @@ function nodeToCl(node) {
         case "Literal": {
             return literal(node.value);
         }
-
-        // case "Pattern":
         case "Identifier": {
             return id(node.name);
         }
         case "ConditionalExpression": {
-            return ite(nodeToCl(node.test), nodeToCl(node.alternate), nodeToCl(node.consequent));
+            return ite(nodeToCl(node.test, sorts), nodeToCl(node.alternate, sorts), nodeToCl(node.consequent, sorts));
         }
         case "LogicalExpression": {
             switch (node.operator) {
                 case "||": {
-                    return or(nodeToCl(node.left), nodeToCl(node.right));
+                    return or(nodeToCl(node.left, sorts), nodeToCl(node.right, sorts));
                 }
                 case "&&": {
-                    return and(nodeToCl(node.left), nodeToCl(node.right));
+                    return and(nodeToCl(node.left, sorts), nodeToCl(node.right, sorts));
                 }
                 default: {
                     throw Error(unsupported("SMT2 logical expressions with operator " + node.operator));
@@ -166,11 +313,12 @@ function nodeToCl(node) {
         case "UnaryExpression": {
             if (node.prefix) {
                 switch (node.operator) {
-                    case "typeof": {
-                        return sortof(nodeToCl(node.argument));
-                    }
+
+                    // case "typeof": {
+                    //     return undefined;
+                    // }
                     case "!": {
-                        return not(nodeToCl(node.argument));
+                        return not(nodeToCl(node.argument, sorts));
                     }
                     default: {
                         throw Error(unsupported("SMT2 unary expressions with operator " + node.operator));
@@ -190,17 +338,32 @@ function nodeToCl(node) {
                 case "-":
                 case "*":
                 case "/": {
-                    return binary(node.operator, nodeToCl(node.left), nodeToCl(node.right));
+                    return binary(node.operator, nodeToCl(node.left, sorts), nodeToCl(node.right, sorts));
                 }
+
+                // NOTE:
+                //      this case is special because sometimes we add strings
+                //      and sometimes we add numbers; strings use "Concat",
+                //      and numbers use "+"
                 case "+": {
-                    return cat(nodeToCl(node.left), nodeToCl(node.right));
+                    var sort = nodeToSort(node, sorts);
+                    var binaryFunction;
+
+                    if (sort === smt2sorts.STRING) {
+                        binaryFunction = cat;
+                    } else {
+                        binaryFunction = add;
+                    }
+
+                    return binaryFunction(nodeToCl(node.left, sorts), nodeToCl(node.right, sorts));
                 }
+
                 case "==":
                 case "===": {
-                    return eq(nodeToCl(node.left), nodeToCl(node.right));
+                    return eq(nodeToCl(node.left, sorts), nodeToCl(node.right, sorts));
                 }
                 case "!==": {
-                    return not(eq(nodeToCl(node.left), nodeToCl(node.right)));
+                    return not(eq(nodeToCl(node.left, sorts), nodeToCl(node.right, sorts)));
                 }
                 default: {
                     throw Error(unsupported("SMT2 binary expressions with operator " + node.operator));
@@ -211,7 +374,10 @@ function nodeToCl(node) {
             break;
         }
 
-        // unhandled cases
+        // explicitly unhandled cases
+        case "Pattern": {
+            return literal("__PATTERN__");
+        }
         case "ArrayExpression": {
             return literal("__ARRAY__");
         }
@@ -242,19 +408,21 @@ function nodeToCl(node) {
 }
 
 module.exports = {
-    isNode:   isNode,
-    contains: contains,
-    assert:   assertClause,
-    literal:  literal,
-    push:     push,
-    pop:      pop,
-    id:       id,
-    cat:      cat,
-    decl:     decl,
-    eq:       eq,
-    len:      len,
-    not:      not,
-    getModel: getModel,
-    checkSat: checkSat,
-    nodeToCl: nodeToCl
+    isNode:     isNode,
+    contains:   contains,
+    assert:     assertClause,
+    literal:    literal,
+    push:       push,
+    pop:        pop,
+    id:         id,
+    cat:        cat,
+    decl:       decl,
+    eq:         eq,
+    len:        len,
+    not:        not,
+    getModel:   getModel,
+    checkSat:   checkSat,
+    nodeToSort: nodeToSort,
+    typeToSort: typeToSort,
+    nodeToCl:   nodeToCl
 };

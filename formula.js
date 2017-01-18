@@ -2,15 +2,26 @@
 
 var assert = require("assert");
 
-var cl = require("./clause");
+var cl    = require("./clause");
+var sorts = require("./sorts");
 
-// class
+var DEFAULT_SORT = sorts.STRING;
+
+// classes
 function Formula() {
     this.clauses = [];
+    this.sorts   = {};
 }
 
 Formula.prototype.toString = function () {
     return this.clauses.join("\n");
+};
+
+Formula.prototype.addVariable = function (name, sort) {
+    if (!contains(this.sorts, name)) {
+        this.sorts[name] = [];
+    }
+    this.sorts[name].push(sort);
 };
 
 Formula.prototype.pushClause = function (newClause) {
@@ -39,24 +50,57 @@ Formula.prototype.unassert = function (oldClause) {
     this.popClause(oldClause);
 };
 
-Formula.prototype.declare = function (name, type) {
-    if (cl.isNode(name)) {
-        name = cl.nodeToCl(name);
-    }
-    if (typeof type === "undefined") {
-        type = "String";
-    }
-    this.pushClause(cl.decl(name, type));
-};
+Formula.prototype.declare = function (left, right) {
 
-Formula.prototype.assign = function (left, right) {
+    var name;
+    var sort = DEFAULT_SORT;
+    var value;
+
+    // get variable name
     if (cl.isNode(left)) {
-        left = cl.nodeToCl(left);
+
+        // the left side must be an identifier if it's a node
+        if (left.type !== "Identifier") {
+            throw Error("can't declare non-identifier");
+        }
+
+        name = left.name;
+
+    // if it's not a node, assume it's an identifier
+    } else {
+        name = left;
     }
-    if (cl.isNode(right)) {
-        right = cl.nodeToCl(right);
+
+    // get variable sort
+    if (typeof right !== "undefined" && right !== null) {
+        if (cl.isNode(right)) {
+            sort = cl.nodeToSort(right, this.sorts);
+        } else {
+            sort = cl.typeToSort(typeof right);
+        }
     }
-    this.assert(cl.eq(left, right));
+
+    // keep track of this variable and its sort
+    this.addVariable(name, sort);
+
+    // declare variable
+    this.pushClause(cl.decl(name, sort));
+
+    // assign variable if there is a right side
+    if (typeof right !== "undefined" && right !== null) {
+
+        // get variable value
+        if (cl.isNode(right)) {
+            value = cl.nodeToCl(right, this.sorts);
+
+        // if it's not a node, assume it's a constant
+        } else {
+            value = cl.literal(right);
+        }
+
+        // assign variable
+        this.assert(cl.eq(name, value));
+    }
 };
 
 Formula.prototype.solve = function () {

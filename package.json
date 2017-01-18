@@ -8,15 +8,18 @@
     "url": "https://github.com/dblotsky/node-smt2"
   },
   "scripts": {
-    "test": "npm run lint; npm run style",
-    "style": "./node_modules/.bin/jscs *.js",
-    "lint": "./node_modules/.bin/eslint *.js"
+    "test": "npm run lint; npm run style; npm run jasmine",
+    "style": "./node_modules/.bin/jscs *.js ./**/*.js",
+    "jasmine": "./node_modules/.bin/jasmine --captureExceptions --color tests/*.js",
+    "lint": "./node_modules/.bin/eslint *.js ./**/*.js"
   },
   "dependencies": {
     "q": "^1.4.1"
   },
   "devDependencies": {
     "eslint": "^2.5.3",
+    "esprima": "^3.1.2",
+    "jasmine": "^2.5.2",
     "jscs": "^2.11.0"
   },
   "main": "smt2.js",

@@ -18,7 +18,7 @@ function unsupportedValueType(message, type) {
 }
 
 function unsupportedSortInference(message) {
-    return unsupported("determining SMT2 sorts from" + message);
+    return unsupported("determining SMT2 sorts from " + message);
 }
 
 function cl(name) {

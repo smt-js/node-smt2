@@ -4,13 +4,14 @@ var assert = require("assert");
 
 var cl    = require("./clause");
 var sorts = require("./sorts");
+var util  = require("./util");
 
 var DEFAULT_SORT = sorts.STRING;
 
 // classes
 function Formula() {
     this.clauses = [];
-    this.sorts   = {};
+    this.sorts = {};
 }
 
 Formula.prototype.toString = function () {
@@ -18,7 +19,7 @@ Formula.prototype.toString = function () {
 };
 
 Formula.prototype.addVariable = function (name, sort) {
-    if (!contains(this.sorts, name)) {
+    if (!util.objContains(this.sorts, name)) {
         this.sorts[name] = [];
     }
     this.sorts[name].push(sort);

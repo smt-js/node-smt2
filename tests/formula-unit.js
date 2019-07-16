@@ -96,12 +96,15 @@ describe("formula", function () {
                 });
 
                 it("should support redeclaration", function () {
+
+                    pending("no SSA yet");
+
                     f.declare("lol");
                     f.declare("lol");
                     f.declare("lol");
 
                     expect(f.toString()).toBe(join([
-                        "(declare-variable lol String)",
+                        "(declare-variable lol1 String)",
                         "(declare-variable lol2 String)",
                         "(declare-variable lol3 String)"
                     ]));
